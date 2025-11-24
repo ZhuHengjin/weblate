@@ -26,6 +26,7 @@ from weblate.trans.actions import ActionEvents
 from weblate.trans.models import (
     Category,
     Change,
+    Comment,
     Component,
     ComponentList,
     Project,
@@ -4944,6 +4945,67 @@ class UnitAPITest(APIBaseTest):
             data={"scope": "translation", "comment": "note"},
         )
         self.assertTrue(serializer.is_valid())
+
+    def test_get_unit_comments_empty(self) -> None:
+        """Test GET request returns empty list when no comments exist."""
+        self.authenticate()
+        unit = Unit.objects.get(
+            translation__language_code="cs", source="Hello, world!\n"
+        )
+        response = self.client.get(
+            reverse("api:unit-comments", kwargs={"pk": unit.pk})
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), [])
+
+    def test_get_unit_comments_with_data(self) -> None:
+        """Test GET request returns comments for a unit."""
+        self.authenticate()
+        unit = Unit.objects.get(
+            translation__language_code="cs", source="Hello, world!\n"
+        )
+
+        # Create test comments via POST API
+        self.client.post(
+            reverse("api:unit-comments", kwargs={"pk": unit.pk}),
+            {"comment": "Test comment 1", "scope": "global"},
+            format="json",
+        )
+        self.client.post(
+            reverse("api:unit-comments", kwargs={"pk": unit.pk}),
+            {"comment": "Test comment 2", "scope": "global"},
+            format="json",
+        )
+
+        response = self.client.get(
+            reverse("api:unit-comments", kwargs={"pk": unit.pk})
+        )
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(len(data), 2)
+        self.assertIn("Test comment 1", [c["comment"] for c in data])
+        self.assertIn("Test comment 2", [c["comment"] for c in data])
+
+    def test_get_unit_comments_permissions(self) -> None:
+        """Test GET request respects permissions."""
+        self.authenticate()
+        unit = Unit.objects.get(
+            translation__language_code="cs", source="Hello, world!\n"
+        )
+
+        # Create a comment via POST API
+        self.client.post(
+            reverse("api:unit-comments", kwargs={"pk": unit.pk}),
+            {"comment": "Test comment", "scope": "global"},
+            format="json",
+        )
+
+        # Test without authentication
+        self.client.logout()
+        response = self.client.get(
+            reverse("api:unit-comments", kwargs={"pk": unit.pk})
+        )
+        self.assertEqual(response.status_code, 401)
 
 
 class ScreenshotAPITest(APIBaseTest):

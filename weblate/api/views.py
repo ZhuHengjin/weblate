@@ -2198,16 +2198,39 @@ class UnitViewSet(viewsets.ReadOnlyModelViewSet, UpdateModelMixin, DestroyModelM
         return Response(serializer.data)
 
     @extend_schema(
+        description="List comments for the unit.",
+        methods=["get"],
+        responses=CommentSerializer(many=True),
+    )
+
+    @extend_schema(
         description="Add a comment to the unit.",
         methods=["post"],
         request=CommentSerializer,
     )
-    @action(detail=True, methods=["post"], serializer_class=CommentSerializer)
+    @action(detail=True, methods=["get", "post"], serializer_class=CommentSerializer)
     def comments(self, request, *args, **kwargs):
         """Add a new comment to a unit."""
         unit = self.get_object()
         user = request.user
 
+        if request.method == "GET":
+            # Get all comments for this unit
+            comments = unit.all_comments
+            
+            # Check read permissions
+            # if not user.has_perm("comment.view", unit.translation):\
+            if not user.has_perm("comment.add", unit.translation):
+                self.permission_denied(request)
+            
+            serializer = CommentSerializer(
+                comments, 
+                many=True, 
+                context={"request": request}
+            )
+            return Response(serializer.data)
+        
+        # POST method - add a new comment
         if not user.has_perm("comment.add", unit.translation):
             self.permission_denied(request)
 

@@ -22,6 +22,8 @@ PERMISSIONS = (
     # Translators: Permission name
     ("change.download", gettext_noop("Download changes")),
     # Translators: Permission name
+    # ("comment.view", gettext_noop("View comments")),
+    # Translators: Permission name
     ("comment.add", gettext_noop("Post comment")),
     # Translators: Permission name
     ("comment.delete", gettext_noop("Delete comment")),
@@ -168,6 +170,7 @@ def filter_perms(prefix: str, exclude: set | None = None):
 
 # Translator permissions
 TRANSLATE_PERMS = {
+    # "comment.view",
     "comment.add",
     "suggestion.accept",
     "suggestion.add",

@@ -11,6 +11,7 @@ from weblate.api.views import (
     ChangeViewSet,
     ComponentListViewSet,
     ComponentViewSet,
+    CommentViewSet,
     GroupViewSet,
     LanguageViewSet,
     MemoryViewSet,
@@ -37,6 +38,7 @@ router.register("memory", MemoryViewSet)
 router.register("languages", LanguageViewSet)
 router.register("component-lists", ComponentListViewSet)
 router.register("changes", ChangeViewSet)
+router.register("comments", CommentViewSet)
 router.register("units", UnitViewSet)
 router.register("screenshots", ScreenshotViewSet)
 router.register("tasks", TasksViewSet, "task")

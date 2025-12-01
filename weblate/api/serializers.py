@@ -427,6 +427,40 @@ class CommentSerializer(serializers.Serializer[Comment]):
         )
 
 
+class CommentDetailSerializer(serializers.ModelSerializer[Comment]):
+    unit = serializers.HyperlinkedRelatedField(
+        read_only=True, view_name="api:unit-detail"
+    )
+    translation = MultiFieldHyperlinkedIdentityField(
+        view_name="api:translation-detail",
+        lookup_field=(
+            "unit__translation__component__project__slug",
+            "unit__translation__component__slug",
+            "unit__translation__language__code",
+        ),
+        strip_parts=2,
+    )
+    user = serializers.HyperlinkedRelatedField(
+        read_only=True, view_name="api:user-detail", lookup_field="username"
+    )
+
+    class Meta:
+        model = Comment
+        fields = (
+            "id",
+            "comment",
+            "timestamp",
+            "resolved",
+            "user",
+            "unit",
+            "translation",
+            "url",
+        )
+        extra_kwargs = {  # noqa: RUF012
+            "url": {"view_name": "api:comment-detail"}
+        }
+
+
 class GroupSerializer(serializers.ModelSerializer[Group]):
     roles = serializers.HyperlinkedIdentityField(
         view_name="api:role-detail",

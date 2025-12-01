@@ -29,7 +29,13 @@ from drf_standardized_errors.handler import ExceptionHandler
 from rest_framework import parsers, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import APIException, ValidationError
-from rest_framework.mixins import CreateModelMixin, DestroyModelMixin, UpdateModelMixin
+from rest_framework.mixins import (
+    CreateModelMixin,
+    DestroyModelMixin,
+    ListModelMixin,
+    RetrieveModelMixin,
+    UpdateModelMixin,
+)
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.reverse import reverse
@@ -57,6 +63,7 @@ from weblate.api.serializers import (
     BilingualUnitSerializer,
     CategorySerializer,
     ChangeSerializer,
+    CommentDetailSerializer,
     CommentSerializer,
     ComponentListSerializer,
     ComponentSerializer,
@@ -102,6 +109,7 @@ from weblate.trans.forms import AutoForm
 from weblate.trans.models import (
     Category,
     Change,
+    Comment,
     Component,
     ComponentList,
     Label,
@@ -2215,21 +2223,14 @@ class UnitViewSet(viewsets.ReadOnlyModelViewSet, UpdateModelMixin, DestroyModelM
         user = request.user
 
         if request.method == "GET":
-            # Get all comments for this unit
-            comments = unit.all_comments
-            
-            # Check read permissions
-            # if not user.has_perm("comment.view", unit.translation):\
             if not user.has_perm("comment.add", unit.translation):
                 self.permission_denied(request)
-            
-            serializer = CommentSerializer(
-                comments, 
-                many=True, 
-                context={"request": request}
+            comments = unit.all_comments
+            serializer = CommentDetailSerializer(
+                comments, many=True, context={"request": request}
             )
             return Response(serializer.data)
-        
+
         # POST method - add a new comment
         if not user.has_perm("comment.add", unit.translation):
             self.permission_denied(request)
@@ -2251,7 +2252,10 @@ class UnitViewSet(viewsets.ReadOnlyModelViewSet, UpdateModelMixin, DestroyModelM
             self.permission_denied(request)
 
         serializer.save()
-        return Response(serializer.data, status=HTTP_201_CREATED)
+        output = CommentDetailSerializer(
+            serializer.instance, context={"request": request}
+        )
+        return Response(output.data, status=HTTP_201_CREATED)
 
 
 @extend_schema_view(
@@ -2427,6 +2431,81 @@ class ChangeViewSet(viewsets.ReadOnlyModelViewSet):
     def paginate_queryset(self, queryset):
         result = super().paginate_queryset(queryset)
         return Change.objects.preload_list(result)
+
+
+class CommentFilter(filters.FilterSet):
+    timestamp = filters.IsoDateTimeFromToRangeFilter()
+    resolved = filters.BooleanFilter()
+    user = filters.CharFilter(field_name="user__username")
+    unit = filters.NumberFilter(field_name="unit_id")
+    translation = filters.NumberFilter(field_name="unit__translation_id")
+    component = filters.CharFilter(field_name="unit__translation__component__slug")
+    project = filters.CharFilter(
+        field_name="unit__translation__component__project__slug"
+    )
+    language = filters.CharFilter(field_name="unit__translation__language__code")
+
+    class Meta:
+        model = Comment
+        fields = (
+            "timestamp",
+            "resolved",
+            "user",
+            "unit",
+            "translation",
+            "component",
+            "project",
+            "language",
+        )
+
+
+@extend_schema_view(
+    list=extend_schema(description="Return a list of comments accessible to the user."),
+    retrieve=extend_schema(description="Return information about a comment."),
+    destroy=extend_schema(description="Delete a comment."),
+)
+class CommentViewSet(
+    ListModelMixin, RetrieveModelMixin, DestroyModelMixin, viewsets.GenericViewSet
+):
+    """Comments API."""
+
+    queryset = Comment.objects.none()
+    serializer_class = CommentDetailSerializer
+    filter_backends = (filters.DjangoFilterBackend,)
+    filterset_class = CommentFilter
+    pagination_class = LargePagination
+
+    def get_queryset(self):
+        units = Unit.objects.filter_access(self.request.user).values_list("pk", flat=True)
+        return (
+            Comment.objects.filter(unit_id__in=units)
+            .select_related(
+                "unit",
+                "unit__translation",
+                "unit__translation__component",
+                "unit__translation__language",
+                "user",
+            )
+            .order()
+        )
+
+    def perform_destroy(self, instance):
+        request = self.request
+        if not request.user.has_perm("comment.delete", instance):
+            self.permission_denied(request)
+        instance.delete(user=request.user)
+
+    @extend_schema(description="Resolve a comment.", methods=["post"])
+    @action(detail=True, methods=["post"])
+    def resolve(self, request: Request, *args, **kwargs):
+        comment = self.get_object()
+        if not request.user.has_perm("comment.resolve", comment):
+            self.permission_denied(request)
+
+        if not comment.resolved:
+            comment.resolve(user=request.user)
+        serializer = self.get_serializer(comment)
+        return Response(serializer.data)
 
 
 @extend_schema_view(

@@ -5007,6 +5007,88 @@ class UnitAPITest(APIBaseTest):
         )
         self.assertEqual(response.status_code, 401)
 
+    def test_comment_list_endpoint(self) -> None:
+        unit = Unit.objects.get(
+            translation__language_code="en", source="Thank you for using Weblate."
+        )
+        created = self.do_request(
+            reverse("api:unit-comments", kwargs={"pk": unit.pk}),
+            request={"scope": "global", "comment": "Visible comment"},
+            method="post",
+            code=201,
+        )
+
+        list_response = self.do_request("api:comment-list")
+        comments = list_response.data["results"]
+        self.assertTrue(any(item["id"] == created.data["id"] for item in comments))
+        self.assertTrue(comments[0]["comment"])
+        self.assertIn("unit", comments[0])
+        self.assertIn("resolved", comments[0])
+
+    def test_comment_list_respects_access(self) -> None:
+        unit = Unit.objects.get(
+            translation__language_code="en", source="Thank you for using Weblate."
+        )
+        visible = self.do_request(
+            reverse("api:unit-comments", kwargs={"pk": unit.pk}),
+            request={"scope": "global", "comment": "Visible comment"},
+            method="post",
+            code=201,
+        )
+
+        acl_component = self.create_acl()
+        private_unit = Unit.objects.filter(translation__component=acl_component).first()
+        self.assertIsNotNone(private_unit)
+        self.do_request(
+            reverse("api:unit-comments", kwargs={"pk": private_unit.pk}),
+            request={"scope": "global", "comment": "Hidden comment"},
+            method="post",
+            superuser=True,
+            code=201,
+        )
+
+        response = self.do_request("api:comment-list")
+        texts = [item["comment"] for item in response.data["results"]]
+        self.assertIn(visible.data["comment"], texts)
+        self.assertNotIn("Hidden comment", texts)
+
+        # Ensure detail access to visible comment still works
+        detail = self.do_request(
+            "api:comment-detail",
+            kwargs={"pk": visible.data["id"]},
+            method="get",
+            code=200,
+        )
+        self.assertEqual(detail.data["comment"], visible.data["comment"])
+
+    def test_comment_resolve_and_delete(self) -> None:
+        unit = Unit.objects.get(
+            translation__language_code="en", source="Thank you for using Weblate."
+        )
+        response = self.do_request(
+            reverse("api:unit-comments", kwargs={"pk": unit.pk}),
+            request={"scope": "global", "comment": "Resolve me"},
+            method="post",
+            code=201,
+        )
+        comment_id = response.data["id"]
+
+        resolved = self.do_request(
+            "api:comment-resolve",
+            kwargs={"pk": comment_id},
+            method="post",
+            code=200,
+        )
+        self.assertTrue(resolved.data["resolved"])
+
+        self.do_request(
+            "api:comment-detail",
+            kwargs={"pk": comment_id},
+            method="delete",
+            code=204,
+        )
+        self.assertFalse(Comment.objects.filter(pk=comment_id).exists())
+
 
 class ScreenshotAPITest(APIBaseTest):
     def setUp(self) -> None:
